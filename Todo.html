@@ -1,0 +1,380 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="TaskFlow is a responsive to-do list with task editing, filtering and local storage.">
+  <title>TaskFlow | To-Do List</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #10131d;
+      --panel: #191e2b;
+      --panel2: #22293a;
+      --text: #f2f4fb;
+      --muted: #aab4c8;
+      --accent: #9b8cff;
+      --green: #74e4d0;
+      --border: #30394e;
+      --danger: #ff8290;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: 32px 16px;
+      background: radial-gradient(ellipse at top, #292348, transparent 55%), var(--bg);
+      color: var(--text);
+      font-family: system-ui, sans-serif;
+    }
+
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    button:focus-visible, input:focus-visible {
+      outline: 3px solid var(--green);
+      outline-offset: 3px;
+    }
+
+    .app { width: min(100%, 700px); margin: auto; }
+    .back { color: var(--green); text-decoration: none; }
+    .heading { margin: 30px 0 24px; }
+    .eyebrow { color: var(--green); font-size: .8rem; font-weight: 800; letter-spacing: 2px; }
+    h1 { margin: 8px 0; font-size: clamp(2.2rem, 8vw, 3.5rem); letter-spacing: -2px; }
+    .muted, .heading p { color: var(--muted); }
+
+    .panel {
+      padding: 22px;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: var(--panel);
+    }
+
+    .add-form { display: flex; gap: 10px; }
+    input {
+      width: 100%;
+      min-width: 0;
+      padding: 12px;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+
+    button {
+      padding: 10px 14px;
+      color: var(--text);
+      background: var(--panel2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-weight: 650;
+    }
+
+    .primary { color: #151226; background: var(--accent); border-color: var(--accent); }
+    .stats { display: flex; justify-content: space-between; gap: 12px; margin: 18px 0; color: var(--muted); font-size: .9rem; }
+    .filters { display: flex; flex-wrap: wrap; gap: 8px; }
+    .filters button[aria-pressed="true"] { color: var(--green); border-color: var(--green); }
+    .task-list { display: grid; gap: 10px; list-style: none; margin: 18px 0 0; padding: 0; }
+
+    .task {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px;
+      background: var(--panel2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+    }
+
+    .task-check { width: 19px; height: 19px; flex-shrink: 0; accent-color: var(--green); }
+    .task-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+    .task.done .task-text { text-decoration: line-through; color: var(--muted); }
+    .task-actions { display: flex; gap: 6px; }
+    .task-actions button { padding: 7px 9px; }
+    .delete { color: var(--danger); }
+    .empty { text-align: center; padding: 26px 8px; color: var(--muted); }
+    .edit-input { flex: 1; }
+    .footer { margin-top: 22px; text-align: center; color: var(--muted); font-size: .8rem; }
+
+    @media (max-width: 480px) {
+      body { padding: 22px 12px; }
+      .panel { padding: 14px; }
+      .add-form { flex-direction: column; }
+      .task { gap: 7px; padding: 9px; }
+      .task-actions { gap: 4px; }
+      .task-actions button { padding: 7px; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <a class="back" href="index.html">← Back to portfolio</a>
+
+    <header class="heading">
+      <div class="eyebrow">YOUR PERSONAL WORKSPACE</div>
+      <h1>TaskFlow<span style="color:var(--green)">.</span></h1>
+      <p>Small steps. Real progress. One task at a time.</p>
+    </header>
+
+    <section class="panel" aria-label="To-do list">
+      <form class="add-form" id="task-form">
+        <input id="task-input" type="text" maxlength="200"
+          placeholder="What needs to get done?" aria-label="New task" required>
+        <button class="primary" type="submit">+ Add task</button>
+      </form>
+
+      <div class="stats">
+        <span id="task-count">0 tasks</span>
+        <span id="remaining-count">0 remaining</span>
+      </div>
+
+      <nav class="filters" aria-label="Filter tasks">
+        <button type="button" data-filter="all" aria-pressed="true">All</button>
+        <button type="button" data-filter="active" aria-pressed="false">Active</button>
+        <button type="button" data-filter="completed" aria-pressed="false">Completed</button>
+      </nav>
+
+      <ul class="task-list" id="task-list" aria-label="Tasks"></ul>
+      <p class="muted" id="status" role="status" aria-live="polite"></p>
+    </section>
+
+    <p class="footer">Tasks are saved in this browser using localStorage.</p>
+  </main>
+
+  <script>
+    const STORAGE_KEY = "taskflow-tasks-v1";
+    const form = document.querySelector("#task-form");
+    const input = document.querySelector("#task-input");
+    const list = document.querySelector("#task-list");
+    const taskCount = document.querySelector("#task-count");
+    const remainingCount = document.querySelector("#remaining-count");
+    const status = document.querySelector("#status");
+    const filters = document.querySelector(".filters");
+
+    let tasks = loadTasks();
+    let currentFilter = "all";
+    let editingId = null;
+
+    function loadTasks() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+        if (!Array.isArray(saved)) return [];
+        return saved.filter(task =>
+          task &&
+          typeof task.id === "string" &&
+          typeof task.text === "string" &&
+          typeof task.completed === "boolean"
+        );
+      } catch {
+        return [];
+      }
+    }
+
+    function saveTasks() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+        return true;
+      } catch {
+        status.textContent = "Could not save tasks. Check browser storage settings.";
+        return false;
+      }
+    }
+
+    function makeButton(label, action, className = "") {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = label;
+      button.dataset.action = action;
+      button.className = className;
+      return button;
+    }
+
+    function visibleTasks() {
+      if (currentFilter === "active") return tasks.filter(task => !task.completed);
+      if (currentFilter === "completed") return tasks.filter(task => task.completed);
+      return tasks;
+    }
+
+    function renderTasks() {
+      list.replaceChildren();
+
+      taskCount.textContent = `${tasks.length} ${tasks.length === 1 ? "task" : "tasks"}`;
+      remainingCount.textContent = `${tasks.filter(task => !task.completed).length} remaining`;
+
+      filters.querySelectorAll("button").forEach(button => {
+        button.setAttribute("aria-pressed", String(button.dataset.filter === currentFilter));
+      });
+
+      const shown = visibleTasks();
+
+      if (shown.length === 0) {
+        const empty = document.createElement("li");
+        empty.className = "empty";
+        empty.textContent = tasks.length === 0
+          ? "✨ Nothing here yet. Add your first task!"
+          : "No tasks match this filter.";
+        list.append(empty);
+        return;
+      }
+
+      shown.forEach(task => {
+        const item = document.createElement("li");
+        item.className = `task${task.completed ? " done" : ""}`;
+        item.dataset.id = task.id;
+
+        if (editingId === task.id) {
+          const editInput = document.createElement("input");
+          editInput.className = "edit-input";
+          editInput.value = task.text;
+          editInput.maxLength = 200;
+          editInput.setAttribute("aria-label", "Edit task");
+
+          const actions = document.createElement("div");
+          actions.className = "task-actions";
+          actions.append(
+            makeButton("Save", "save", "primary"),
+            makeButton("Cancel", "cancel")
+          );
+          item.append(editInput, actions);
+        } else {
+          const checkbox = document.createElement("input");
+          checkbox.type = "checkbox";
+          checkbox.className = "task-check";
+          checkbox.checked = task.completed;
+          checkbox.dataset.action = "toggle";
+          checkbox.setAttribute("aria-label", `Complete ${task.text}`);
+
+          const text = document.createElement("span");
+          text.className = "task-text";
+          text.textContent = task.text;
+
+          const actions = document.createElement("div");
+          actions.className = "task-actions";
+          actions.append(
+            makeButton("Edit", "edit"),
+            makeButton("Delete", "delete", "delete")
+          );
+          item.append(checkbox, text, actions);
+        }
+
+        list.append(item);
+      });
+    }
+
+    form.addEventListener("submit", event => {
+      event.preventDefault();
+      const text = input.value.trim();
+
+      if (!text) {
+        status.textContent = "Please enter a task first.";
+        input.focus();
+        return;
+      }
+
+      tasks.unshift({
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        text,
+        completed: false
+      });
+
+      saveTasks();
+      renderTasks();
+      input.value = "";
+      status.textContent = "Task added.";
+      input.focus();
+    });
+
+    filters.addEventListener("click", event => {
+      const button = event.target.closest("button[data-filter]");
+      if (!button) return;
+      currentFilter = button.dataset.filter;
+      editingId = null;
+      renderTasks();
+    });
+
+    // Delegated click listener handles actions for every task row.
+    list.addEventListener("click", event => {
+      const button = event.target.closest("button[data-action]");
+      if (!button) return;
+
+      const item = button.closest(".task");
+      const task = tasks.find(entry => entry.id === item?.dataset.id);
+      if (!task) return;
+
+      switch (button.dataset.action) {
+        case "edit":
+          editingId = task.id;
+          renderTasks();
+          list.querySelector(".edit-input")?.focus();
+          break;
+
+        case "cancel":
+          editingId = null;
+          renderTasks();
+          break;
+
+        case "save": {
+          const editInput = item.querySelector(".edit-input");
+          const newText = editInput.value.trim();
+
+          if (!newText) {
+            status.textContent = "Task cannot be empty.";
+            editInput.focus();
+            return;
+          }
+
+          task.text = newText;
+          editingId = null;
+          saveTasks();
+          renderTasks();
+          status.textContent = "Task updated.";
+          break;
+        }
+
+        case "delete":
+          tasks = tasks.filter(entry => entry.id !== task.id);
+          editingId = null;
+          saveTasks();
+          renderTasks();
+          status.textContent = "Task deleted.";
+          break;
+      }
+    });
+
+    list.addEventListener("change", event => {
+      if (!event.target.matches('input[data-action="toggle"]')) return;
+
+      const item = event.target.closest(".task");
+      const task = tasks.find(entry => entry.id === item?.dataset.id);
+      if (!task) return;
+
+      task.completed = event.target.checked;
+      saveTasks();
+      renderTasks();
+      status.textContent = task.completed ? "Task completed." : "Task marked active.";
+    });
+
+    list.addEventListener("keydown", event => {
+      if (!event.target.matches(".edit-input")) return;
+
+      if (event.key === "Enter") {
+        event.preventDefault();
+        event.target.closest(".task").querySelector('[data-action="save"]').click();
+      }
+
+      if (event.key === "Escape") {
+        editingId = null;
+        renderTasks();
+      }
+    });
+
+    renderTasks();
+  </script>
+</body>
+</html>
